@@ -1,5 +1,4 @@
 import os
-import json
 import random
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -13,7 +12,7 @@ app = FastAPI()
 DISCORD_PUBLIC_KEY = os.environ["DISCORD_PUBLIC_KEY"]
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
-ADMIN_USER_ID = 1221338797602635827
+ADMIN_USER_ID = os.environ["ADMIN_USER_ID"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -34,13 +33,16 @@ async def get_user_balance(user_id: str) -> int:
     res = supabase.table("users").select("balance").eq("id", user_id).execute()
     data = res.data
     if not data:
-        # Create user with default balance 1000 if not exist
         supabase.table("users").insert({"id": user_id, "balance": 1000}).execute()
         return 1000
     return data[0]["balance"]
 
 async def update_user_balance(user_id: str, new_balance: int):
     supabase.table("users").update({"balance": new_balance}).eq("id", user_id).execute()
+
+def get_leaderboard():
+    res = supabase.table("users").select("id,balance").order("balance", desc=True).limit(10).execute()
+    return res.data or []
 
 @app.post("/")
 async def interactions(request: Request):
@@ -57,51 +59,37 @@ async def interactions(request: Request):
     options = {opt["name"]: opt.get("value") for opt in data.get("options", [])}
     user_id = payload["member"]["user"]["id"]
 
-    # Helper for balance check
-    async def has_enough(user_id: str, amount: int):
-        bal = await get_user_balance(user_id)
-        return bal >= amount
-
-    # Helper for leaderboard
-    def get_leaderboard():
-        res = supabase.table("users").select("id,balance").order("balance", desc=True).limit(10).execute()
-        return res.data or []
-
-    # Command Handlers
-
     if name == "help":
         return {
             "type": 4,
             "data": {
                 "content": (
-                    "**Available Commands:**\n"
+                    "**Commands:**\n"
                     "/coinflip <amount>\n"
                     "/blackjack <amount>\n"
+                    "/chest <amount>\n"
                     "/balance [user]\n"
-                    "/pay <user> <amount>\n"
                     "/leaderboard\n"
                     "/setbalance <user> <amount> (admin only)\n"
-                    "/winrate <game> <decimal>\n"
-                    "/chest <amount>\n"
-                    "/deposit, /withdraw (tickets)"
+                    "/pay <user> <amount>\n"
+                    "/deposit, /withdraw (tickets)\n"
+                    "/winrate <game> <decimal> (admin only)"
                 )
             }
         }
 
     elif name == "balance":
-        # Optional user arg
         target_id = options.get("user", user_id)
         bal = await get_user_balance(target_id)
-        return {"type":4, "data": {"content": f"<@{target_id}>'s balance is {bal} coins."}}
+        return {"type": 4, "data": {"content": f"<@{target_id}>'s balance is {bal} coins."}}
 
     elif name == "coinflip":
         amount = int(options.get("amount", 0))
         if amount <= 0:
-            return {"type":4, "data": {"content": "Bet must be positive."}}
+            return {"type": 4, "data": {"content": "Bet must be positive."}}
         bal = await get_user_balance(user_id)
         if amount > bal:
-            return {"type":4, "data": {"content": "You don't have enough coins to bet that amount."}}
-
+            return {"type": 4, "data": {"content": "You don't have enough coins to bet that amount."}}
         win_chance = 0.4
         if random.random() < win_chance:
             new_bal = bal + amount
@@ -109,19 +97,16 @@ async def interactions(request: Request):
         else:
             new_bal = bal - amount
             result = f"You lost! You now have {new_bal} coins."
-
         await update_user_balance(user_id, new_bal)
-        return {"type":4, "data": {"content": result}}
+        return {"type": 4, "data": {"content": result}}
 
     elif name == "blackjack":
         amount = int(options.get("amount", 0))
         if amount <= 0:
-            return {"type":4, "data": {"content": "Bet must be positive."}}
+            return {"type": 4, "data": {"content": "Bet must be positive."}}
         bal = await get_user_balance(user_id)
         if amount > bal:
-            return {"type":4, "data": {"content": "You don't have enough coins to bet that amount."}}
-
-        # Rigged 40% win chance blackjack (replace with full interactive if wanted)
+            return {"type": 4, "data": {"content": "You don't have enough coins to bet that amount."}}
         win_chance = 0.4
         if random.random() < win_chance:
             new_bal = bal + amount
@@ -129,20 +114,17 @@ async def interactions(request: Request):
         else:
             new_bal = bal - amount
             result = f"You lost blackjack! You now have {new_bal} coins."
-
         await update_user_balance(user_id, new_bal)
-        return {"type":4, "data": {"content": result}}
+        return {"type": 4, "data": {"content": result}}
 
     elif name == "chest":
         amount = int(options.get("amount", 0))
         if amount <= 0:
-            return {"type":4, "data": {"content": "Amount must be positive."}}
+            return {"type": 4, "data": {"content": "Amount must be positive."}}
         cost = amount * 10_000_000
         bal = await get_user_balance(user_id)
         if cost > bal:
-            return {"type":4, "data": {"content": "You don't have enough coins to buy that many chests."}}
-
-        # Loot table (percentage thresholds for reward tiers)
+            return {"type": 4, "data": {"content": "You don't have enough coins to buy that many chests."}}
         loot_table = [
             (0.5, 5_000_000),
             (0.35, 7_500_000),
@@ -152,7 +134,6 @@ async def interactions(request: Request):
             (0.001, 100_000_000),
             (0.0001, 750_000_000),
         ]
-
         total_reward = 0
         for _ in range(amount):
             r = random.random()
@@ -164,8 +145,7 @@ async def interactions(request: Request):
                     break
         new_bal = bal - cost + total_reward
         await update_user_balance(user_id, new_bal)
-
-        return {"type":4, "data": {"content":
+        return {"type": 4, "data": {"content":
             f"You opened {amount} chest(s) for {cost} coins.\n"
             f"You got {total_reward} coins in rewards!\n"
             f"Your new balance is {new_bal} coins."
@@ -174,45 +154,40 @@ async def interactions(request: Request):
     elif name == "leaderboard":
         leaderboard = get_leaderboard()
         if not leaderboard:
-            return {"type":4, "data": {"content": "Leaderboard is empty."}}
+            return {"type": 4, "data": {"content": "Leaderboard is empty."}}
         text = "**Leaderboard - Top 10 users:**\n"
         for i, entry in enumerate(leaderboard, start=1):
             text += f"{i}. <@{entry['id']}> - {entry['balance']} coins\n"
-        return {"type":4, "data": {"content": text}}
+        return {"type": 4, "data": {"content": text}}
 
     elif name == "setbalance":
         if user_id != ADMIN_USER_ID:
-            return {"type":4, "data": {"content": "You are not authorized to use this command."}}
-
+            return {"type": 4, "data": {"content": "You are not authorized to use this command."}}
         target_id = options.get("user")
         amount = options.get("amount")
         if not target_id or amount is None:
-            return {"type":4, "data": {"content": "Please specify user and amount."}}
+            return {"type": 4, "data": {"content": "Please specify user and amount."}}
         amount = int(amount)
         if amount < 0:
-            return {"type":4, "data": {"content": "Amount cannot be negative."}}
-
+            return {"type": 4, "data": {"content": "Amount cannot be negative."}}
         supabase.table("users").upsert({"id": target_id, "balance": amount}).execute()
-        return {"type":4, "data": {"content": f"Set <@{target_id}>'s balance to {amount} coins."}}
+        return {"type": 4, "data": {"content": f"Set <@{target_id}>'s balance to {amount} coins."}}
 
     elif name == "pay":
         target_id = options.get("user")
         amount = options.get("amount")
         if not target_id or amount is None:
-            return {"type":4, "data": {"content": "Please specify user and amount."}}
+            return {"type": 4, "data": {"content": "Please specify user and amount."}}
         amount = int(amount)
         if amount <= 0:
-            return {"type":4, "data": {"content": "Amount must be positive."}}
-
+            return {"type": 4, "data": {"content": "Amount must be positive."}}
         bal = await get_user_balance(user_id)
         if bal < amount:
-            return {"type":4, "data": {"content": "You don't have enough coins to pay that amount."}}
-
+            return {"type": 4, "data": {"content": "You don't have enough coins to pay that amount."}}
         target_bal = await get_user_balance(target_id)
         await update_user_balance(user_id, bal - amount)
         await update_user_balance(target_id, target_bal + amount)
-
-        return {"type":4, "data": {"content": f"You paid <@{target_id}> {amount} coins."}}
+        return {"type": 4, "data": {"content": f"You paid <@{target_id}> {amount} coins."}}
 
     else:
-        return {"type":4, "data": {"content": "Unknown command. Use /help to see commands."}}
+        return {"type": 4, "data": {"content": "Unknown command. Use /help to see commands."}}
