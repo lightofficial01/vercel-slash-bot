@@ -1,2 +1,3 @@
-flask
-pynacl
+discord-py-interactions
+httpx
+supabase
