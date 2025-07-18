@@ -13,18 +13,22 @@ def verify_signature(req):
 
     try:
         verify_key = nacl.signing.VerifyKey(bytes.fromhex(PUBLIC_KEY))
-        verify_key.verify(f'{timestamp}{body}'.encode(), bytes.fromhex(signature))
+        verify_key.verify(f"{timestamp}{body}".encode(), bytes.fromhex(signature))
         return True
     except nacl.exceptions.BadSignatureError:
         return False
 
-@app.route("/", methods=["POST"])
+@app.route("/", methods=["POST", "GET"])
 def main():
+    if request.method == "GET":
+        return "Bot is running", 200
+
     if not verify_signature(request):
         abort(401)
 
     payload = request.json
-    if payload["type"] == 1:
-        return jsonify({"type": 1})  # Respond to Discord PING
+    if payload["type"] == 1:  # PING from Discord
+        return jsonify({"type": 1})
 
+    # For now, just acknowledge other commands
     return jsonify({"type": 4, "data": {"content": "✅ Slash command received!"}})
