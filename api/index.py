@@ -1,13 +1,11 @@
-
-
 import os
 from flask import Flask, request, jsonify, abort
 import nacl.signing
 import nacl.exceptions
 
 app = Flask(__name__)
-PUBLIC_KEY = os.getenv("2991a488b2c82ec2e0f47de5dbc1e6298514c4e8427fa58ea50b37ac8c7aa59c")
-print("Public key is:", PUBLIC_KEY)
+PUBLIC_KEY = os.getenv("DISCORD_PUBLIC_KEY")
+
 def verify_signature(req):
     signature = req.headers.get("X-Signature-Ed25519")
     timestamp = req.headers.get("X-Signature-Timestamp")
@@ -29,8 +27,7 @@ def main():
         abort(401)
 
     payload = request.json
-    if payload["type"] == 1:  # PING from Discord
-        return jsonify({"type": 1})
+    if payload["type"] == 1:
+        return jsonify({"type": 1})  # Respond to Discord PING
 
-    # For now, just acknowledge other commands
     return jsonify({"type": 4, "data": {"content": "✅ Slash command received!"}})
