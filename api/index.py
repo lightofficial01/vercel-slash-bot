@@ -1,31 +1,39 @@
-from fastapi import FastAPI, Request, HTTPException
-from discord_interactions import verify_key_decorator, InteractionType, InteractionResponseType
-import random
+import os
+import nacl.signing
+import nacl.exceptions
+from flask import Flask, request, jsonify, abort
 
-app = FastAPI()
-DISCORD_PUBLIC_KEY = "2991a488b2c82ec2e0f47de5dbc1e6298514c4e8427fa58ea50b37ac8c7aa59c"
+app = Flask(__name__)
 
-@app.post("/api")
-@verify_key_decorator(DISCORD_PUBLIC_KEY)
-async def interactions(request: Request):
-    body = await request.json()
+DISCORD_PUBLIC_KEY = os.getenv("2991a488b2c82ec2e0f47de5dbc1e6298514c4e8427fa58ea50b37ac8c7aa59c")
 
-    if body["type"] == InteractionType.PING:
-        return {"type": InteractionResponseType.PONG}
+def verify_signature(request):
+    signature = request.headers.get("X-Signature-Ed25519")
+    timestamp = request.headers.get("X-Signature-Timestamp")
+    body = request.data.decode("utf-8")
 
-    if body["type"] == InteractionType.APPLICATION_COMMAND:
-        command_name = body["data"]["name"]
+    try:
+        verify_key = nacl.signing.VerifyKey(bytes.fromhex(DISCORD_PUBLIC_KEY))
+        verify_key.verify(f"{timestamp}{body}".encode(), bytes.fromhex(signature))
+        return True
+    except nacl.exceptions.BadSignatureError:
+        return False
 
-        if command_name == "coinflip":
-            result = random.choice(["Heads", "Tails"])
-            return {
-                "type": InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                "data": {"content": f"🪙 You flipped: **{result}**!"}
-            }
+@app.route("/", methods=["POST"])
+def interactions():
+    if not verify_signature(request):
+        abort(401)
 
-        return {
-            "type": InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-            "data": {"content": "Command not implemented."}
+    payload = request.json
+
+    # Respond to Discord PING request
+    if payload["type"] == 1:
+        return jsonify({"type": 1})
+
+    # Otherwise reply with dummy message
+    return jsonify({
+        "type": 4,
+        "data": {
+            "content": f"Command received: {payload['data']['name']}"
         }
-
-    raise HTTPException(status_code=400, detail="Unknown interaction type")
+    })
