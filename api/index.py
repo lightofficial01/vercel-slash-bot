@@ -1,3 +1,5 @@
+print("Public key is:", PUBLIC_KEY)
+
 import os
 from flask import Flask, request, jsonify, abort
 import nacl.signing
